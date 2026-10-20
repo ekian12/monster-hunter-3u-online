@@ -1,0 +1,276 @@
+# Hosting a MH3U Revival game
+
+You run the server; your friends point their patched Cemu at you. The server does auth +
+matchmaking + presence — the hunt itself is peer-to-peer. **Beta: up to 16 hunters per
+gathering hall, 4 per hunt room** (the 4-per-room is the game's own P2P limit; the hall size
+is server-tunable — see `MH3U_HALL_MAX` in the env-var table).
+
+## Two ways to host
+
+**Easiest — the built-in Host tab (no Python, nothing extra to install).** Hosting is part of the
+same all-in-one **MH3U Online Bundle** you play with — `server.exe` already ships inside it. Then:
+
+1. Get your friends onto your **Tailscale** or **Radmin** network (see
+   [section 3](#3-make-the-server-reachable) — that part is the same either way).
+2. Open **`MH3U_Online.exe`** → **Host** tab. Pick the IP your friends will use (it auto-detects
+   your Radmin `26.x` / Tailscale `100.x` / LAN address, or type any IP), then click **Start
+   Server**. It shows the **address your friends type in** and streams the server log — leave it
+   running.
+3. To play on the same PC, click **Host + Play (127.0.0.1)** — it starts the server *and* joins it
+   yourself at loopback. Online is already enabled in the bundle.
+
+That's the whole thing — `server.exe` is self-contained, so you can **skip the rest of this page**.
+
+**From source (advanced).** If you'd rather run or modify the server in Python, the rest of this
+page is for you.
+
+## What you need (from-source path)
+As the host you run a small program (the server) and you also play. Four things — you
+probably already have the last two:
+
+- **Python** (free) — the server is a Python program. [Install it](https://www.python.org/downloads/),
+  and on the **first installer screen tick "Add python.exe to PATH."** (Easy to miss, and
+  without it the commands below won't be recognized.)
+- **This server** — the files in *this repo*. The ready-to-play **bundle** you may have seen is
+  what your *friends* use to join — it does **not** include the server, so to host you need the repo.
+- The **patched Cemu** build (`Cemu_release.exe`, the `mh3u-revival` Cemu fork) — you play too.
+- Your **own legal MH3U dump** — nothing is distributed.
+
+> **Where do I type the commands?** In a **terminal** — Command Prompt, PowerShell, or Windows
+> Terminal. You don't need a code editor or anything else. Open one and you're ready.
+
+## 1. Get the server and run it
+Download this repo, then grab the one extra library it needs — a small MH3U-patched fork of
+NintendoClients — and put it right where the server looks for it. The commands below use
+**Git** — the easiest way,
+because it drops everything in the right place automatically. (No Git? See **No Git?** just
+below.) In a terminal:
+```bash
+# 1. get the server
+git clone https://github.com/Matt-Wood-23/mh3u-revival.git
+
+# 2. get the patched NintendoClients it needs, in the exact spot the server expects it
+git clone --branch mh3u-revival https://github.com/Matt-Wood-23/NintendoClients.git external/NintendoClients
+
+# 3. install the small pip deps and start it
+cd mh3u-revival
+pip install -r requirements.txt        # pin anynet==1.1.0 (1.2.x breaks import on 3.13)
+python server.py
+```
+**Don't skip step 2** — it's the one thing that isn't pip-installable, and without it the
+server quits right away with an `import nintendo` error. (It's a small fork of
+[NintendoClients](https://github.com/kinnay/NintendoClients): MH3U needs a legacy-PRUDP-v1
+patch that upstream doesn't carry, and upstream also crashes on Python 3.13 — so clone the
+fork's `mh3u-revival` branch, not upstream.) It binds `0.0.0.0:1223` (auth) +
+`0.0.0.0:1224` (secure).
+
+> **No Git?** You can download both from GitHub's green **Code → Download ZIP** button
+> instead — you just have to place them by hand, because the server looks for NintendoClients
+> at an exact spot:
+>
+> 1. Download the **mh3u-revival** ZIP and unzip it (it comes out as `mh3u-revival-main` —
+>    rename it to `mh3u-revival` if you like; the name doesn't matter).
+> 2. Download the **NintendoClients** ZIP from the fork
+>    ([Matt-Wood-23/NintendoClients](https://github.com/Matt-Wood-23/NintendoClients) → green
+>    **Code → Download ZIP**; its default branch is already the right `mh3u-revival` one),
+>    unzip it, and **rename** the folder from `NintendoClients-mh3u-revival` to just
+>    **`NintendoClients`**.
+> 3. Arrange them so an **`external`** folder sits *next to* the server folder, with
+>    NintendoClients inside it.
+>
+> ```text
+> (any folder)/
+>   mh3u-revival/        ← the server (run the commands here)
+>   external/
+>     NintendoClients/   ← renamed, no "-master"
+> ```
+>
+> Then run the `cd mh3u-revival`, `pip install`, and `python server.py` lines above (skip the
+> two `git clone` lines). If you get `import nintendo`, the `external/NintendoClients` folder
+> is named or placed wrong.
+
+## 2. Tell the server your reachable IP
+So your co-located host player (and remote joiners) are advertised a usable address:
+```bash
+# Windows
+set MH3U_ADVERTISE=<your-reachable-ip> & python server.py
+# Linux/macOS
+MH3U_ADVERTISE=<your-reachable-ip> python server.py
+```
+`<your-reachable-ip>` is the **same** address your players will use (see step 3).
+
+## 3. Make the server reachable
+| Players are… | Do this | `<reachable-ip>` |
+|---|---|---|
+| **over an overlay (recommended)** | you + friends join a **Tailscale** *or* **Radmin** network | overlay IP (Tailscale `100.x` / Radmin `26.x`) |
+| anywhere, no VPN | open the public path — see [PUBLIC_HOSTING.md](PUBLIC_HOSTING.md) | your public IP (`curl ifconfig.me`) |
+| on your LAN | nothing | your LAN IP (e.g. `192.168.1.50`) |
+
+> **Public-internet hosting is proven** (a real session, including a joiner behind cellular
+> CGNAT) but it's the power-user path: it exposes your IP, needs router admin access and a
+> real public IPv4 on your line, and has firewall gotchas that silently break it. Friends
+> need zero extra setup — even behind CGNAT. Full guide: [PUBLIC_HOSTING.md](PUBLIC_HOSTING.md).
+
+**Overlay (the recommended path) — using Tailscale (the proven path):**
+1. Install [Tailscale](https://tailscale.com/download) and sign in (free). Only *you* organize
+   the tailnet.
+2. **Add each friend to your tailnet** (this is the fiddly part — read the gotcha box):
+   1. Admin console → **Users → Invite external users** → send each friend the invite link.
+   2. They open it, sign in with their own account, **accept** → now they're a *member*.
+   3. They install Tailscale on their **gaming PC** and sign in with that **same** account.
+   4. They make their **client** actually use *your* tailnet, not their own (the gotcha below).
+3. Find your Tailscale IP: `tailscale ip -4` (a `100.x` address). Run the server with
+   `MH3U_ADVERTISE=<that 100.x IP>`. **Confirm you can see each friend's device first** — your
+   `tailscale status` should list it with a `100.x` IP (and approve it under **Machines** if your
+   tailnet requires device approval). Then they confirm the tunnel: `tailscale ping <your 100.x>`
+   → "pong".
+
+> **⚠️ The #1 Tailscale gotcha — "I invited them but their device never shows up."**
+> Accepting your invite makes them a *user* on your tailnet, but their **client** usually stays
+> connected to **their own** tailnet (Tailscale auto-creates one per account). Their device then
+> shows in *their* Tailscale popout but never in your `tailscale status`. **Fix (what worked
+> live):** the friend switches to *your* tailnet in the Tailscale UI, **then logs out and back in
+> on the client** to re-auth and bind the device. Alternative: hand them an **auth key**
+> (Settings → Keys → *Generate auth key* — an **auth** key, **not** an *API access token*, which
+> errors "unable to validate api key"; tick **Pre-approved**) and have them run
+> `tailscale up --authkey=tskey-auth-… --force-reauth`.
+
+> Tested end-to-end on Tailscale — a **4-player** hunt including a **genuinely remote friend** on
+> his own PC and ISP; all P2P links established.
+
+**Overlay alternative — Radmin VPN:** if you'd rather use [Radmin VPN](https://www.radmin-vpn.com/)
+(free, and often less fiddly than tailnets): install it on every gaming PC, **create a network**
+(you) and have friends **join it** by name + password. Your Radmin IP is the `26.x.x.x` shown next
+to your PC in the Radmin window — run the server with `MH3U_ADVERTISE=<that 26.x IP>`, and friends
+put the **same** `26.x` in their `mh3u_server.txt`. Confirm reachability first: a friend's
+`ping <your 26.x>` should reply. The server re-stamps each hunt's P2P endpoint to the Radmin plane,
+so hunts connect even though Cemu reports its raw public IP for the hole-punch — **verified live,
+including a cross-region JP↔US pair.** The launcher's **Host** tab auto-detects your Radmin `26.x`
+address (as well as Tailscale/LAN), so just select it there and **Start Server** — no need to set
+`MH3U_ADVERTISE` by hand.
+
+> **Why an overlay:** it's private (no IP exposure), needs no router config, and works
+> behind CGNAT — which raw hole-punch and port-forwarding don't. See
+> [ARCHITECTURE.md §5](ARCHITECTURE.md#5-reachability--networking).
+
+## 4. Your own Cemu (you play too)
+
+> **Use ONE Cemu, and it must be the patched fork.** The account file, the online-gate files,
+> and `mh3u_server.txt` all live in a specific Cemu's data folder — so the Cemu you *launch* has
+> to be the same one you put those files in, or you'll get no green "valid online account"
+> checkmark and the game will fail Network Mode without ever contacting the server. **Simplest:
+> just play through the MH3U Online Bundle's Cemu** — its data root is the bundle's `portable\`
+> folder, so point the two scripts below at `…\MH3U_Online_Bundle\portable` (and its
+> `…\portable\mlc01\usr\save\system\act\80000001` for the account), then launch the bundle's
+> `Cemu_release.exe`. Don't generate files into the bundle and then launch a *different* Cemu.
+
+- Generate your player identity once: run `dist/make_account.py` (random unique PID), or use
+  the launcher from the MH3U Online Bundle. Pin a fixed PID with `--player 1` if you like.
+- Generate the dummy online-gate files: `dist/make_online_files.py "<cemu_data>"`.
+- Set your Cemu's `mh3u_server.txt` to your `<reachable-ip>` (with `MH3U_ADVERTISE` set,
+  `127.0.0.1` also works for the co-located host).
+- **Turn online on in Cemu** — *only if you're using your **own** Cemu; the bundle's Cemu already
+  ships with this on, so skip it there.* *Options → General Settings → Account* → set **Network
+  Service = Nintendo** (the online-requirements status should be all green; that's what the dummy
+  gate files above satisfy). **Restart Cemu** for it to take effect.
+- **Bringing an existing save?** If you already played MH3U in another Cemu, **launch the game
+  once first** so Cemu creates the save folder, then **close it** and copy your existing save's
+  contents into `…\mlc01\usr\save\00050000\10118300\user\80000001\` (that `user\80000001` folder
+  doesn't exist until the first launch). The save's **region must match the game's** region.
+
+## 5. Play
+Launch MH3U → Network Mode → enter a Gathering Hall → **Create a Room**. Friends join the
+same hall and enter your room.
+
+---
+
+## Environment variables
+| Var | Default | Purpose |
+|---|---|---|
+| `MH3U_ADVERTISE` | (none) | reachable IP handed to joiners; substitutes loopback for co-located peers |
+| `MH3U_BIND` | `0.0.0.0` | bind address (set `127.0.0.1` to restrict to local) |
+| `MH3U_HALL_MAX` | `16` | hunters who can share a **gathering hall / lobby** at once (each then forms their own hunt room). The hall is server-roster-fed, so this is safe to raise; the game renders large halls fine. Bump for a bigger community hub. |
+| `MH3U_ROOM_MAX` | `4` | hunters per **hunt room**. This is the game's own P2P limit — **leave it at 4**; the client isn't built for more in one hunt. Exposed only for completeness. |
+| `MH3U_NUM_WORLDS` | `1` | number of gathering **worlds** advertised on the world-select screen. Rooms are global (not tied to a world), so one world is honest for a small server; raise to seed more world entries. |
+| `MH3U_NOTIFY_ON` | `1` | on room leave/disconnect, notify the remaining players so their game drops the leaver (the rejoin fix — works for any host, local or remote). Leave on. |
+| `MH3U_HOST_FREE` | `0` | legacy fallback for the same fix: poke the departed guest's slot directly in the **host Cemu's** RAM. Only works when the server runs **on the same machine as the host Cemu**; superseded by `MH3U_NOTIFY_ON`. |
+| `MH3U_HOST_HINT` | `e:\cemu-src` | exe-path hint to find the host Cemu process (legacy poke only) |
+| `MH3U_RELAY` | `off` | UDP relay for gameplay traffic. `force` = relay every host↔guest hunt link, so peers never learn each other's real IP and joiners need no port forwarding. `auto` = relay only pairs whose direct connection already failed. See the section below. |
+| `MH3U_RELAY_PROBES` | `host` | which links the relay covers. **Leave this alone.** `all` is a diagnostic that breaks 3-player rooms — see [GUEST_PAIR_PROBLEM.md](GUEST_PAIR_PROBLEM.md). |
+| `MH3U_RELAY_ADVERTISE` | = `MH3U_ADVERTISE` | address players are told to send relayed traffic to. Only set this if the relay is reachable on a different address than the server. |
+| `MH3U_RELAY_PORT_START` / `_END` | `27100` / `27387` | UDP port pool for relayed links, one port per player pair. 288 ports covers the default room cap. **These must be forwarded** if you relay. |
+| `MH3U_REAP_TIMEOUT` | `45` | seconds of silence before a ghost connection is reaped (`0` disables — use while debugging with a paused Cemu) |
+
+> **Rejoin fix note:** since 2026-07-02 the leave/rejoin fix is a standard NEX
+> notification pushed by the server, so it works no matter where the room's host is —
+> same PC, another PC, another continent. The old RAM-poke (`host_roster_free.py`,
+> `MH3U_HOST_FREE=1`) remains available as an emergency fallback for co-located hosts.
+> See [ARCHITECTURE.md §4](ARCHITECTURE.md#4-the-rejoin-problem-and-its-fix-the-hard-part).
+
+## Optional: the UDP relay
+
+By default hunts are direct peer-to-peer: players connect straight to each other, which
+means they see each other's IP addresses and both ends need to get through their own NAT.
+
+Setting `MH3U_RELAY=force` routes hunt traffic through **your** server instead:
+
+```sh
+MH3U_RELAY=force MH3U_ADVERTISE=<your-public-ip> python server.py
+```
+
+What that buys you:
+
+- **Joiners no longer need port forwarding**, including players behind CGNAT (cellular home
+  internet, Starlink, hotspots) who often cannot hole-punch at all.
+- **Players stop seeing each other's IP addresses** — they only ever see your server's.
+
+What it costs you:
+
+- **All hunt traffic flows through your connection**, both directions, for every relayed
+  link. This is real bandwidth. Fine for a group of friends; think before pointing a large
+  hall at it.
+- **You must forward the relay port range** (`27100-27387` UDP by default) as well as
+  `1223`/`1224`.
+
+Two things to know before you turn it on:
+
+1. **It does not remove the need for *you* to be reachable.** The relay hides the other
+   players' addresses, not yours — you are the server, so you still need a public IP and
+   forwarded ports. See [PUBLIC_HOSTING.md](PUBLIC_HOSTING.md).
+2. **It does not cover every link in a 3+ player room.** The relay handles links involving
+   the room's host player; links between two non-host players stay direct. This is why the
+   player with the worst NAT should be the one who **creates** the room. Your server prints
+   a warning naming them when it matters. Full detail:
+   [GUEST_PAIR_PROBLEM.md](GUEST_PAIR_PROBLEM.md).
+
+`MH3U_RELAY=force` **fails closed**: if the port pool runs out it refuses the join rather
+than quietly falling back to exposing a real address. If you see that in your log, widen
+`MH3U_RELAY_PORT_END` — the log line tells you the exact value to use.
+
+There is also `MH3U_RELAY=auto`, which starts every pair direct and relays only pairs that
+have already failed. It uses fewer ports and less bandwidth, at the cost of one failed join
+attempt before it kicks in, and it does not hide addresses from pairs that connect fine.
+
+## Troubleshooting
+
+- **`pip install` tries to compile `netifaces` / asks for Visual C++ Build Tools** = you're on
+  an old checkout. `git pull` (or re-clone) and reinstall — current `requirements.txt` ships a
+  pure-Python `netifaces` stub, so **no compiler is needed**. Run pip from the repo root.
+- **A friend's device never appears in your `tailscale status`** = their Tailscale client is on
+  *their own* tailnet, not yours. They switch to your tailnet in the Tailscale UI and **log out /
+  back in** on the client (or join via an auth key + `--force-reauth`). See the gotcha box in step 3.
+- **Joiner shows "connected to the internet" then drops to the village** = they can't reach
+  your server. Confirm they can reach your `<reachable-ip>` (overlay up? `tailscale ping`
+  → "pong"?). 99% of the time it's the overlay, not the build.
+- **Server sees zero packets from a LAN joiner** = many home/Wi-Fi networks block PC↔PC UDP
+  (client/AP isolation). Don't fight it — use an overlay, which tunnels past it.
+- **EU or JP copy of MH3U gets no green checkmark / never reaches the server** = the patched
+  Cemu's redirect is gated on each region's title ID. Builds at/after this note accept **US
+  (`0005000010118300`), EU (`0005000010116300`), and JP (`000500001010ec00`)**; an older
+  build only redirects US, so an EU/JP game silently talks to dead Nintendo servers (no
+  movement). Update to a current patched Cemu build. **⚠️ Only the US version has been tested
+  end-to-end so far** — EU/JP support is wired in but unverified; if you run EU/JP, please
+  report whether it connects. *(If an EU/JP client reaches the server but the log shows a
+  SYN/CONNECT signature rejection, that region's PRUDP access key differs from US's `cb2b2f5a`
+  and must be added server-side — see ARCHITECTURE §1.)*
+- **`mh3u_server.txt` must be ≤15 chars** (a Wii U field limit) — use an **IP**, not a domain.
